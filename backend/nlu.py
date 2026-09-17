@@ -1,0 +1,156 @@
+"""
+NLU layer for TaskPilot.
+Extracts intent and raw entities from voice transcripts using Groq's official Python SDK.
+
+Intents supported:
+1. create_snag: User intends to report or log an issue/snag.
+2. search_snags: User intends to search, view, or filter snags.
+"""
+
+import os
+import json
+from typing import Dict, Any
+from dotenv import load_dotenv
+from groq import Groq
+
+load_dotenv()
+
+TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "create_snag",
+            "description": "Log or create a new snag, defect, or site issue in the construction or interior fit-out project.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Concise summary of the snag/issue (e.g. 'Ceiling paint cracking', 'Leaking pipe under sink')."
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Raw location mentioned by user (e.g. 'master bathroom', 'kitchen', 'balcony')."
+                    },
+                    "contractor": {
+                        "type": "string",
+                        "description": "Raw contractor name, trade, or role mentioned (e.g. 'false ceiling', 'plumber', 'carpenter')."
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["Low", "Medium", "High", "Critical"],
+                        "description": "Priority level if specified or implied by urgency."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Additional details or notes about the defect."
+                    }
+                },
+                "required": ["title"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_snags",
+            "description": "Search, query, filter, or list existing snags/issues in the project.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "Location to filter snags by (e.g. 'master bathroom', 'kitchen')."
+                    },
+                    "contractor": {
+                        "type": "string",
+                        "description": "Contractor name or trade to filter snags by (e.g. 'electrical', 'plumbing')."
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Status to filter by (e.g. 'Open', 'In Progress', 'Resolved', 'Closed')."
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Keyword search query for finding specific snags."
+                    }
+                }
+            }
+        }
+    }
+]
+
+SYSTEM_PROMPT = """You are TaskPilot NLU, a voice command interpreter for construction and interior fit-out project management.
+Your job is to parse speech transcripts and invoke the appropriate tool:
+- `create_snag`: For commands creating, logging, adding, fixing, reporting, or raising a snag/defect/issue.
+- `search_snags`: For commands querying, finding, showing, listing, checking, or viewing snags/issues.
+
+Always call one of the two tools if the user's intent is to create or search snags. Extract entities accurately from the transcript as spoken."""
+
+
+def extract_intent_and_entities(transcript: str) -> Dict[str, Any]:
+    """
+    Calls Groq using the official native Groq SDK.
+    """
+    groq_key = os.getenv("GROQ_API_KEY")
+    if not groq_key:
+        raise ValueError("GROQ_API_KEY is not set. Please add GROQ_API_KEY=gsk_... to your backend/.env file.")
+
+    client = Groq(api_key=groq_key)
+    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b" )
+
+    response = client.chat.completions.create(
+        model=model,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": transcript}
+        ],
+        tools=TOOLS,
+        tool_choice="auto",
+        temperature=0.0
+    )
+
+    choice = response.choices[0].message
+
+    if choice.tool_calls:
+        tool_call = choice.tool_calls[0]
+        try:
+            args = json.loads(tool_call.function.arguments)
+        except Exception:
+            args = {}
+
+        return {
+            "intent": tool_call.function.name,
+            "raw_entities": args,
+            "raw_transcript": transcript,
+            "provider": "Groq",
+            "model": model
+        }
+
+    return {
+        "intent": "unknown",
+        "raw_entities": {},
+        "raw_transcript": transcript,
+        "message": choice.content if choice.content else "Could not understand the command.",
+        "provider": "Groq",
+        "model": model
+    }
+
+
+if __name__ == "__main__":
+    # Sanity check against 3 hardcoded examples
+    test_cases = [
+        "Create a snag for the master bathroom ceiling, assign it to the false-ceiling contractor",
+        "Show me all open snags in the kitchen assigned to plumbing",
+        "There's a cracked floor tile near the balcony entrance, log this for tiling contractor high priority"
+    ]
+
+    print("Running NLU sanity tests with Groq SDK...")
+    for idx, test_text in enumerate(test_cases, 1):
+        print(f"\n--- Test {idx} ---")
+        print(f"Transcript: \"{test_text}\"")
+        try:
+            result = extract_intent_and_entities(test_text)
+            print(f"Result: {json.dumps(result, indent=2)}")
+        except Exception as e:
+            print(f"Error: {e}")
