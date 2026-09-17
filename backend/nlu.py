@@ -3,8 +3,9 @@ NLU layer for TaskPilot.
 Extracts intent and raw entities from voice transcripts using Groq's official Python SDK.
 
 Intents supported:
-1. create_snag: User intends to report or log an issue/snag.
-2. search_snags: User intends to search, view, or filter snags.
+1. create_snag: User intends to report or log an issue/defect/snag.
+2. assign_task: User intends to assign/create a work task or assignment for a contractor.
+3. search_snags: User intends to search, view, or filter snags.
 """
 
 import os
@@ -53,6 +54,44 @@ TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "assign_task",
+            "description": "Create and assign a work task, job, or work order to a contractor or trade for a specific location.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "title": {
+                        "type": "string",
+                        "description": "Title or summary of the task to be completed (e.g. 'Install thermostatic mixer', 'Mount electrical switchboards')."
+                    },
+                    "contractor": {
+                        "type": "string",
+                        "description": "Contractor name, trade, or role assigned to the task (e.g. 'plumbing', 'false ceiling', 'electrical', 'carpentry')."
+                    },
+                    "location": {
+                        "type": "string",
+                        "description": "Location or room for the task (e.g. 'master bathroom', 'kitchen', 'living room')."
+                    },
+                    "due_date": {
+                        "type": "string",
+                        "description": "Target completion date or timeframe if mentioned (e.g. 'by Friday', 'tomorrow', 'next week')."
+                    },
+                    "priority": {
+                        "type": "string",
+                        "enum": ["Low", "Medium", "High", "Critical"],
+                        "description": "Priority level of the task."
+                    },
+                    "description": {
+                        "type": "string",
+                        "description": "Additional notes or instructions for the contractor."
+                    }
+                },
+                "required": ["title", "contractor"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_snags",
             "description": "Search, query, filter, or list existing snags/issues in the project.",
             "parameters": {
@@ -82,10 +121,11 @@ TOOLS = [
 
 SYSTEM_PROMPT = """You are TaskPilot NLU, a voice command interpreter for construction and interior fit-out project management.
 Your job is to parse speech transcripts and invoke the appropriate tool:
-- `create_snag`: For commands creating, logging, adding, fixing, reporting, or raising a snag/defect/issue.
-- `search_snags`: For commands querying, finding, showing, listing, checking, or viewing snags/issues.
+- `create_snag`: For commands creating, logging, adding, reporting, or raising a snag/defect/issue/flaw to be fixed.
+- `assign_task`: For commands creating, scheduling, giving, delegating, or assigning a new work task/job/order to a contractor or trade.
+- `search_snags`: For commands querying, finding, showing, listing, checking, or viewing existing snags/issues.
 
-Always call one of the two tools if the user's intent is to create or search snags. Extract entities accurately from the transcript as spoken."""
+Always call one of the tools if the user's intent matches. Extract entities accurately from the transcript as spoken."""
 
 
 def extract_intent_and_entities(transcript: str) -> Dict[str, Any]:
@@ -97,7 +137,7 @@ def extract_intent_and_entities(transcript: str) -> Dict[str, Any]:
         raise ValueError("GROQ_API_KEY is not set. Please add GROQ_API_KEY=gsk_... to your backend/.env file.")
 
     client = Groq(api_key=groq_key)
-    model = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b" )
+    model = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
     response = client.chat.completions.create(
         model=model,
@@ -138,11 +178,11 @@ def extract_intent_and_entities(transcript: str) -> Dict[str, Any]:
 
 
 if __name__ == "__main__":
-    # Sanity check against 3 hardcoded examples
+    # Sanity check against hardcoded examples
     test_cases = [
         "Create a snag for the master bathroom ceiling, assign it to the false-ceiling contractor",
-        "Show me all open snags in the kitchen assigned to plumbing",
-        "There's a cracked floor tile near the balcony entrance, log this for tiling contractor high priority"
+        "Assign task to plumber: install bathroom shower mixer in master bathroom by Friday",
+        "Show me all open snags in the kitchen assigned to plumbing"
     ]
 
     print("Running NLU sanity tests with Groq SDK...")

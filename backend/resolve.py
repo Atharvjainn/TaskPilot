@@ -96,6 +96,7 @@ def resolve_entities(db: Session, project_id: int, raw_entities: Dict[str, Any])
         "title": raw_entities.get("title", ""),
         "description": raw_entities.get("description", ""),
         "priority": raw_entities.get("priority", "Medium"),
+        "due_date": raw_entities.get("due_date", ""),
         "location": {
             "matched": loc_res["matched"],
             "id": loc_res["location"].id if loc_res["location"] else None,

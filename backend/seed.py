@@ -4,7 +4,7 @@ Run with: python seed.py
 Idempotent — skips seeding if data already exists in database.
 """
 
-from models import SessionLocal, init_db, Project, Location, Contractor, Snag
+from models import SessionLocal, init_db, Project, Location, Contractor, Snag, Task
 
 
 def seed():
@@ -53,7 +53,7 @@ def seed():
         db.add_all(contractors)
         db.flush()
 
-        # Map for sample snags
+        # Map for sample references
         loc_map = {loc.name: loc.id for loc in locations}
         contr_map = {c.trade: c.id for c in contractors}
 
@@ -88,6 +88,31 @@ def seed():
             ),
         ]
         db.add_all(sample_snags)
+
+        # 5. Initial sample tasks
+        sample_tasks = [
+            Task(
+                project_id=project.id,
+                location_id=loc_map.get("Master Bathroom"),
+                contractor_id=contr_map.get("Plumbing"),
+                title="Install thermostatic shower mixer and hand shower",
+                description="Mount chrome fixtures as per layout drawing A-12.",
+                due_date="Friday",
+                status="Pending",
+                priority="High"
+            ),
+            Task(
+                project_id=project.id,
+                location_id=loc_map.get("Living Room"),
+                contractor_id=contr_map.get("False Ceiling"),
+                title="Complete gypsum board framing and perimeter channel",
+                description="Ensure laser level alignment for 9-foot ceiling height.",
+                due_date="Tomorrow",
+                status="In Progress",
+                priority="Medium"
+            )
+        ]
+        db.add_all(sample_tasks)
         db.commit()
 
         print("Database seeded successfully!")
@@ -95,6 +120,7 @@ def seed():
         print(f"- Locations created: {len(locations)}")
         print(f"- Contractors created: {len(contractors)}")
         print(f"- Sample snags created: {len(sample_snags)}")
+        print(f"- Sample tasks created: {len(sample_tasks)}")
 
     except Exception as e:
         db.rollback()

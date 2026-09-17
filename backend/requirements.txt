@@ -6,3 +6,4 @@ groq
 rapidfuzz
 pydantic
 python-dotenv
+python-multipart

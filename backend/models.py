@@ -1,6 +1,7 @@
 """
 Database schema and session management for TaskPilot.
 Supports Neon PostgreSQL (production/cloud) and SQLite (local fallback).
+Defines models: Project, Location, Contractor, Snag, and Task.
 """
 
 import os
@@ -44,6 +45,7 @@ class Project(Base):
     locations = relationship("Location", back_populates="project", cascade="all, delete-orphan")
     contractors = relationship("Contractor", back_populates="project", cascade="all, delete-orphan")
     snags = relationship("Snag", back_populates="project", cascade="all, delete-orphan")
+    tasks = relationship("Task", back_populates="project", cascade="all, delete-orphan")
 
 
 class Location(Base):
@@ -56,6 +58,7 @@ class Location(Base):
 
     project = relationship("Project", back_populates="locations")
     snags = relationship("Snag", back_populates="location")
+    tasks = relationship("Task", back_populates="location")
 
 
 class Contractor(Base):
@@ -69,6 +72,7 @@ class Contractor(Base):
 
     project = relationship("Project", back_populates="contractors")
     snags = relationship("Snag", back_populates="contractor")
+    tasks = relationship("Task", back_populates="contractor")
 
 
 class Snag(Base):
@@ -87,6 +91,25 @@ class Snag(Base):
     project = relationship("Project", back_populates="snags")
     location = relationship("Location", back_populates="snags")
     contractor = relationship("Contractor", back_populates="snags")
+
+
+class Task(Base):
+    __tablename__ = "tasks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    contractor_id = Column(Integer, ForeignKey("contractors.id"), nullable=False)
+    location_id = Column(Integer, ForeignKey("locations.id"), nullable=True)
+    title = Column(String(255), nullable=False)
+    description = Column(Text, nullable=True)
+    due_date = Column(String(100), nullable=True)
+    status = Column(String(50), default="Pending")  # Pending, In Progress, Completed
+    priority = Column(String(50), default="Medium")  # Low, Medium, High, Critical
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    project = relationship("Project", back_populates="tasks")
+    location = relationship("Location", back_populates="tasks")
+    contractor = relationship("Contractor", back_populates="tasks")
 
 
 def init_db():
