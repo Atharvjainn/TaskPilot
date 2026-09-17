@@ -17,6 +17,7 @@ from groq import Groq
 from models import get_db, init_db, Project, Location, Contractor, Snag, Task
 from nlu import extract_intent_and_entities
 from resolve import resolve_entities, resolve_location, resolve_contractor
+from seed import seed
 
 app = FastAPI(
     title="TaskPilot API",
@@ -24,9 +25,12 @@ app = FastAPI(
     version="1.0.0"
 )
 
+cors_origins_env = os.getenv("FRONTEND_URL") or os.getenv("CORS_ORIGINS")
+cors_origins = [o.strip() for o in cors_origins_env.split(",") if o.strip()] if cors_origins_env else ["*"]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,6 +86,10 @@ async def transcribe_audio(file: UploadFile = File(...)):
 @app.on_event("startup")
 def startup_event():
     init_db()
+    try:
+        seed()
+    except Exception as e:
+        print(f"Warning: Auto-seed skipped or failed: {e}")
 
 
 def get_active_project(db: Session) -> Project:

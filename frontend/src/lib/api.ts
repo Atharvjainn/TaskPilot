@@ -9,7 +9,7 @@ import {
 
 export const getApiBase = (): string => {
   if (process.env.NEXT_PUBLIC_API_BASE) {
-    return process.env.NEXT_PUBLIC_API_BASE;
+    return process.env.NEXT_PUBLIC_API_BASE.replace(/\/+$/, '');
   }
   if (typeof window !== 'undefined') {
     if (window.location.port === '8000') {
