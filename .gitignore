@@ -8,3 +8,10 @@ voice_project.db
 .DS_Store
 .vscode/
 .idea/
+node_modules/
+.next/
+out/
+build/
+dist/
+*.tsbuildinfo
+next-env.d.ts

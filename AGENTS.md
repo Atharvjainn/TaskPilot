@@ -17,8 +17,8 @@ Built for the ArchScale hackathon, problem statement AS-03.
 ## Architecture (read in this order to understand the system)
 
 ```
-frontend/index.html
-    → browser Web Speech API captures voice → editable transcript box
+frontend/ (Next.js App Router, Tailwind CSS, TypeScript, Lucide Icons)
+    → microphone capture (Groq Whisper / Web Speech API) → editable transcript box
     → user reviews/edits transcript, clicks Send → POST /voice to backend
 
 backend/main.py            (FastAPI app, orchestrates everything)
@@ -45,7 +45,7 @@ LLM (Groq: `llama-3.3-70b-versatile`) via function-calling/tool-use against sche
      card. The recovery path for a bad match is "Cancel, edit the transcript
      phrasing, resend" — already a complete loop.
 
-2. **Three intents supported:** `create_snag`, `assign_task`, and `search_snags`.
+2. **Three intents supported:** `create_snag`, `assign_task`, and `search_records` (supports snags and tasks).
 
 3. **Entities are resolved with fuzzy matching (`rapidfuzz`), not
    exact string matching.** `resolve.py`'s `MATCH_THRESHOLD` (currently
@@ -61,13 +61,14 @@ LLM (Groq: `llama-3.3-70b-versatile`) via function-calling/tool-use against sche
 |---|---|
 | `backend/models.py` | DB schema + session management (Project, Location, Contractor, Snag, Task). |
 | `backend/seed.py` | Demo data. Run after any schema change: `python seed.py`. Idempotent — skips if already seeded. |
-| `backend/nlu.py` | The function schemas (`create_snag`, `assign_task`, `search_snags`) + the Groq API call. |
+| `backend/nlu.py` | The function schemas (`create_snag`, `assign_task`, `search_records`) + the Groq API call. |
 | `backend/resolve.py` | Fuzzy-matching logic for locations and contractors. |
-| `backend/main.py` | Request handling, voice audio transcription (Groq Whisper), confirmation flow, DB writes. |
-| `frontend/index.html` | Single-page UI with dual-mode voice capture (Whisper + Web Speech), tabbed dashboard for snags and tasks. |
+| `backend/main.py` | Request handling, voice audio transcription (Groq Whisper), confirmation flow, DB writes, status updates. |
+| `frontend/` | Next.js App Router (TypeScript, Tailwind CSS, Lucide Icons), dual-mode voice capture (Whisper + Web Speech), SpeechSynthesis TTS spoken feedback, project directory badges, prompt chips, and interactive dashboard for snags and tasks. |
 
 ## How to run
 
+### Backend
 ```bash
 cd backend
 python -m venv venv && source venv/bin/activate
@@ -75,11 +76,18 @@ pip install -r requirements.txt
 python seed.py                       # one-time
 uvicorn main:app --reload --port 8000
 ```
-Then open `http://localhost:8000` in Chrome or Edge.
+
+### Frontend
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Then open `http://localhost:3000` in Chrome or Edge.
 
 ## How to test changes
 
 1. `python nlu.py` — sanity-checks intent extraction against hardcoded examples.
 2. `http://localhost:8000/docs` — FastAPI's interactive tester.
-3. Full loop: `http://localhost:8000` in Chrome, mic → edit transcript →
+3. Full loop: `http://localhost:3000` in Chrome, mic → edit transcript →
    send → confirm → check database.

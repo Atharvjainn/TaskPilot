@@ -5,7 +5,7 @@ Extracts intent and raw entities from voice transcripts using Groq's official Py
 Intents supported:
 1. create_snag: User intends to report or log an issue/defect/snag.
 2. assign_task: User intends to assign/create a work task or assignment for a contractor.
-3. search_snags: User intends to search, view, or filter snags.
+3. search_records: User intends to search, view, or filter snags or assigned tasks.
 """
 
 import os
@@ -30,20 +30,20 @@ TOOLS = [
                         "description": "Concise summary of the snag/issue (e.g. 'Ceiling paint cracking', 'Leaking pipe under sink')."
                     },
                     "location": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": "Raw location mentioned by user (e.g. 'master bathroom', 'kitchen', 'balcony')."
                     },
                     "contractor": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": "Raw contractor name, trade, or role mentioned (e.g. 'false ceiling', 'plumber', 'carpenter')."
                     },
                     "priority": {
-                        "type": "string",
-                        "enum": ["Low", "Medium", "High", "Critical"],
+                        "type": ["string", "null"],
+                        "enum": ["Low", "Medium", "High", "Critical", None],
                         "description": "Priority level if specified or implied by urgency."
                     },
                     "description": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": "Additional details or notes about the defect."
                     }
                 },
@@ -68,20 +68,20 @@ TOOLS = [
                         "description": "Contractor name, trade, or role assigned to the task (e.g. 'plumbing', 'false ceiling', 'electrical', 'carpentry')."
                     },
                     "location": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": "Location or room for the task (e.g. 'master bathroom', 'kitchen', 'living room')."
                     },
                     "due_date": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": "Target completion date or timeframe if mentioned (e.g. 'by Friday', 'tomorrow', 'next week')."
                     },
                     "priority": {
-                        "type": "string",
-                        "enum": ["Low", "Medium", "High", "Critical"],
+                        "type": ["string", "null"],
+                        "enum": ["Low", "Medium", "High", "Critical", None],
                         "description": "Priority level of the task."
                     },
                     "description": {
-                        "type": "string",
+                        "type": ["string", "null"],
                         "description": "Additional notes or instructions for the contractor."
                     }
                 },
@@ -92,26 +92,31 @@ TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "search_snags",
-            "description": "Search, query, filter, or list existing snags/issues in the project.",
+            "name": "search_records",
+            "description": "Search, query, filter, or list existing snags/defects or assigned tasks/work orders in the project.",
             "parameters": {
                 "type": "object",
                 "properties": {
+                    "record_type": {
+                        "type": ["string", "null"],
+                        "enum": ["snag", "task", None],
+                        "description": "Type of records to search for: 'snag' for defects/issues, 'task' for assigned work tasks/orders. Defaults to 'snag' if ambiguous."
+                    },
                     "location": {
-                        "type": "string",
-                        "description": "Location to filter snags by (e.g. 'master bathroom', 'kitchen')."
+                        "type": ["string", "null"],
+                        "description": "Location to filter records by (e.g. 'master bathroom', 'kitchen')."
                     },
                     "contractor": {
-                        "type": "string",
-                        "description": "Contractor name or trade to filter snags by (e.g. 'electrical', 'plumbing')."
+                        "type": ["string", "null"],
+                        "description": "Contractor name or trade to filter records by (e.g. 'electrical', 'plumbing')."
                     },
                     "status": {
-                        "type": "string",
-                        "description": "Status to filter by (e.g. 'Open', 'In Progress', 'Resolved', 'Closed')."
+                        "type": ["string", "null"],
+                        "description": "Status to filter by (e.g. 'Open', 'Pending', 'In Progress', 'Resolved', 'Closed', 'Completed')."
                     },
                     "query": {
-                        "type": "string",
-                        "description": "Keyword search query for finding specific snags."
+                        "type": ["string", "null"],
+                        "description": "Keyword search query for finding specific records."
                     }
                 }
             }
@@ -123,9 +128,10 @@ SYSTEM_PROMPT = """You are TaskPilot NLU, a voice command interpreter for constr
 Your job is to parse speech transcripts and invoke the appropriate tool:
 - `create_snag`: For commands creating, logging, adding, reporting, or raising a snag/defect/issue/flaw to be fixed.
 - `assign_task`: For commands creating, scheduling, giving, delegating, or assigning a new work task/job/order to a contractor or trade.
-- `search_snags`: For commands querying, finding, showing, listing, checking, or viewing existing snags/issues.
+- `search_records`: For commands querying, finding, showing, listing, checking, or viewing existing snags/defects or assigned work tasks/orders (set record_type to 'snag' or 'task').
 
-Always call one of the tools if the user's intent matches. Extract entities accurately from the transcript as spoken."""
+Always call one of the tools if the user's intent matches. Extract entities accurately from the transcript as spoken.
+Do not pass null for fields that are not mentioned; omit them from the arguments whenever possible."""
 
 
 def extract_intent_and_entities(transcript: str) -> Dict[str, Any]:
@@ -182,7 +188,8 @@ if __name__ == "__main__":
     test_cases = [
         "Create a snag for the master bathroom ceiling, assign it to the false-ceiling contractor",
         "Assign task to plumber: install bathroom shower mixer in master bathroom by Friday",
-        "Show me all open snags in the kitchen assigned to plumbing"
+        "Show me all open snags in the kitchen assigned to plumbing",
+        "Show me tasks assigned to the electrician"
     ]
 
     print("Running NLU sanity tests with Groq SDK...")

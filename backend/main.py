@@ -1,7 +1,7 @@
 """
 FastAPI application for TaskPilot voice-to-command backend.
 Orchestrates NLU extraction, entity resolution, confirmation flow, and database operations.
-Supports intents: create_snag, assign_task, and search_snags.
+Supports intents: create_snag, assign_task, and search_records.
 """
 
 import os
@@ -32,15 +32,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-FRONTEND_FILE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "frontend", "index.html"))
-
-
 @app.get("/")
-def serve_frontend():
-    """Serves the single-page voice UI directly at root."""
-    if os.path.exists(FRONTEND_FILE):
-        return FileResponse(FRONTEND_FILE)
-    return {"message": "TaskPilot API is running. (Frontend file not found at " + FRONTEND_FILE + ")"}
+def root():
+    """Returns TaskPilot API status and frontend information."""
+    return {
+        "name": "TaskPilot API",
+        "version": "1.0.0",
+        "status": "running",
+        "docs_url": "/docs",
+        "frontend_dev_url": "http://localhost:3000"
+    }
+
+@app.get("/health")
+def health_check():
+    """
+    Health check endpoint returning system status and whether GROQ_API_KEY is configured.
+    """
+    groq_key = os.getenv("GROQ_API_KEY", "").strip()
+    return {
+        "status": "ok",
+        "groq_configured": bool(groq_key)
+    }
 
 
 @app.post("/transcribe")
@@ -95,6 +107,10 @@ class ConfirmRequest(BaseModel):
     payload: Dict[str, Any]
 
 
+class StatusUpdateRequest(BaseModel):
+    status: str
+
+
 @app.get("/project")
 def get_project_info(db: Session = Depends(get_db)):
     """
@@ -140,6 +156,32 @@ def get_snags(db: Session = Depends(get_db)):
     ]
 
 
+@app.patch("/snags/{snag_id}/status")
+def update_snag_status(snag_id: int, req: StatusUpdateRequest, db: Session = Depends(get_db)):
+    """
+    Updates the status of an existing snag.
+    """
+    snag = db.query(Snag).filter(Snag.id == snag_id).first()
+    if not snag:
+        raise HTTPException(status_code=404, detail="Snag not found")
+
+    snag.status = req.status
+    db.commit()
+    db.refresh(snag)
+
+    return {
+        "id": snag.id,
+        "title": snag.title,
+        "description": snag.description,
+        "status": snag.status,
+        "priority": snag.priority,
+        "location": snag.location.name if snag.location else None,
+        "contractor": snag.contractor.name if snag.contractor else None,
+        "contractor_trade": snag.contractor.trade if snag.contractor else None,
+        "created_at": snag.created_at.isoformat() if snag.created_at else None
+    }
+
+
 @app.get("/tasks")
 def get_tasks(db: Session = Depends(get_db)):
     """
@@ -167,6 +209,33 @@ def get_tasks(db: Session = Depends(get_db)):
         }
         for t in tasks
     ]
+
+
+@app.patch("/tasks/{task_id}/status")
+def update_task_status(task_id: int, req: StatusUpdateRequest, db: Session = Depends(get_db)):
+    """
+    Updates the status of an existing task.
+    """
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    task.status = req.status
+    db.commit()
+    db.refresh(task)
+
+    return {
+        "id": task.id,
+        "title": task.title,
+        "description": task.description,
+        "due_date": task.due_date,
+        "status": task.status,
+        "priority": task.priority,
+        "location": task.location.name if task.location else None,
+        "contractor": task.contractor.name if task.contractor else None,
+        "contractor_trade": task.contractor.trade if task.contractor else None,
+        "created_at": task.created_at.isoformat() if task.created_at else None
+    }
 
 
 @app.post("/voice")
@@ -273,51 +342,106 @@ def process_voice_transcript(req: VoiceRequest, db: Session = Depends(get_db)):
             "transcript": transcript
         }
 
-    elif intent == "search_snags":
-        # Resolve search filters
-        query = db.query(Snag).filter(Snag.project_id == project.id)
+    elif intent in ("search_records", "search_snags"):
+        record_type = raw_entities.get("record_type", "snag")
+        if not record_type:
+            record_type = "snag"
+        record_type = str(record_type).lower().strip()
 
         loc_match = resolve_location(db, project.id, raw_entities.get("location"))
-        if loc_match["matched"] and loc_match["location"]:
-            query = query.filter(Snag.location_id == loc_match["location"].id)
-
         contr_match = resolve_contractor(db, project.id, raw_entities.get("contractor"))
-        if contr_match["matched"] and contr_match["contractor"]:
-            query = query.filter(Snag.contractor_id == contr_match["contractor"].id)
 
-        if raw_entities.get("status"):
-            query = query.filter(Snag.status.ilike(f"%{raw_entities['status']}%"))
+        if record_type == "task":
+            query = db.query(Task).filter(Task.project_id == project.id)
 
-        if raw_entities.get("query"):
-            q_term = f"%{raw_entities['query']}%"
-            query = query.filter(or_(Snag.title.ilike(q_term), Snag.description.ilike(q_term)))
+            if loc_match["matched"] and loc_match["location"]:
+                query = query.filter(Task.location_id == loc_match["location"].id)
 
-        results = query.order_by(Snag.created_at.desc()).all()
+            if contr_match["matched"] and contr_match["contractor"]:
+                query = query.filter(Task.contractor_id == contr_match["contractor"].id)
 
-        return {
-            "type": "search_results",
-            "intent": "search_snags",
-            "count": len(results),
-            "filters": {
-                "location": loc_match["location"].name if loc_match["matched"] else raw_entities.get("location"),
-                "contractor": contr_match["contractor"].name if contr_match["matched"] else raw_entities.get("contractor"),
-                "status": raw_entities.get("status")
-            },
-            "snags": [
-                {
-                    "id": s.id,
-                    "title": s.title,
-                    "description": s.description,
-                    "status": s.status,
-                    "priority": s.priority,
-                    "location": s.location.name if s.location else None,
-                    "contractor": s.contractor.name if s.contractor else None,
-                    "created_at": s.created_at.isoformat() if s.created_at else None
-                }
-                for s in results
-            ],
-            "transcript": transcript
-        }
+            if raw_entities.get("status"):
+                query = query.filter(Task.status.ilike(f"%{raw_entities['status']}%"))
+
+            if raw_entities.get("query"):
+                q_term = f"%{raw_entities['query']}%"
+                query = query.filter(or_(Task.title.ilike(q_term), Task.description.ilike(q_term)))
+
+            results = query.order_by(Task.created_at.desc()).all()
+
+            return {
+                "type": "search_results",
+                "intent": "search_records",
+                "record_type": "task",
+                "count": len(results),
+                "filters": {
+                    "location": loc_match["location"].name if loc_match["matched"] else raw_entities.get("location"),
+                    "contractor": contr_match["contractor"].name if contr_match["matched"] else raw_entities.get("contractor"),
+                    "status": raw_entities.get("status")
+                },
+                "tasks": [
+                    {
+                        "id": t.id,
+                        "title": t.title,
+                        "description": t.description,
+                        "due_date": t.due_date,
+                        "status": t.status,
+                        "priority": t.priority,
+                        "location": t.location.name if t.location else None,
+                        "contractor": t.contractor.name if t.contractor else None,
+                        "contractor_trade": t.contractor.trade if t.contractor else None,
+                        "created_at": t.created_at.isoformat() if t.created_at else None
+                    }
+                    for t in results
+                ],
+                "transcript": transcript
+            }
+
+        else:
+            # Query Snag table (default)
+            query = db.query(Snag).filter(Snag.project_id == project.id)
+
+            if loc_match["matched"] and loc_match["location"]:
+                query = query.filter(Snag.location_id == loc_match["location"].id)
+
+            if contr_match["matched"] and contr_match["contractor"]:
+                query = query.filter(Snag.contractor_id == contr_match["contractor"].id)
+
+            if raw_entities.get("status"):
+                query = query.filter(Snag.status.ilike(f"%{raw_entities['status']}%"))
+
+            if raw_entities.get("query"):
+                q_term = f"%{raw_entities['query']}%"
+                query = query.filter(or_(Snag.title.ilike(q_term), Snag.description.ilike(q_term)))
+
+            results = query.order_by(Snag.created_at.desc()).all()
+
+            return {
+                "type": "search_results",
+                "intent": "search_records",
+                "record_type": "snag",
+                "count": len(results),
+                "filters": {
+                    "location": loc_match["location"].name if loc_match["matched"] else raw_entities.get("location"),
+                    "contractor": contr_match["contractor"].name if contr_match["matched"] else raw_entities.get("contractor"),
+                    "status": raw_entities.get("status")
+                },
+                "snags": [
+                    {
+                        "id": s.id,
+                        "title": s.title,
+                        "description": s.description,
+                        "status": s.status,
+                        "priority": s.priority,
+                        "location": s.location.name if s.location else None,
+                        "contractor": s.contractor.name if s.contractor else None,
+                        "contractor_trade": s.contractor.trade if s.contractor else None,
+                        "created_at": s.created_at.isoformat() if s.created_at else None
+                    }
+                    for s in results
+                ],
+                "transcript": transcript
+            }
 
     else:
         return {
